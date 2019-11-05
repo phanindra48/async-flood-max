@@ -17,6 +17,7 @@ VS CODE
 .vscode
 
 venv
+__pycache__
 
 out/*
 

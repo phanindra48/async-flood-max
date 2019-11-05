@@ -19,8 +19,6 @@ class Node implements Runnable {
   int uid;
   volatile int round;
   List<Integer> neighbors;
-  volatile boolean hold = false;
-  volatile boolean terminate = false;
   volatile int maxUID;
   DelayQueue<DelayedItem> queue;
   String status;
@@ -44,7 +42,6 @@ class Node implements Runnable {
   @Override
   public void run() {
     List<DelayedItem> items = new ArrayList<>();
-    boolean initiateRound = true;
     try {
       while (true) {
         if (round < diameter) {
@@ -52,36 +49,20 @@ class Node implements Runnable {
           this.messageCount += this.neighbors.size();
         }
 
-        // queue.drainTo(items);
-        // if (items.size() < neighbors.size()) {
-        //   // System.out.println("Waiting for neighbors...");
-        //   // hold = true;
-        //   continue;
-        // }
-
         while (items.size() < neighbors.size()) {
           // System.out.println("Waiting for neighbors...");
           queue.drainTo(items);
-          // if (items.size() > neighbors.size()) {
-          //   System.out.println(items);
-          // }
         }
 
         // add items back if they are not of same round
         queue.addAll(items.stream().filter(i -> i.getRound() != round).collect(Collectors.toList()));
 
-        // hold = false;
-        // initiateRound = true;
-
-
         round++;
 
-        // System.out.println("Finding maximum");
         // Get max of all incoming messages
         maxUID = Math.max(maxUID, items.stream().max(Comparator.comparing(DelayedItem::getId)).get().getId());
 
         items = new ArrayList<>();
-        // System.out.println("Found maximum: " + maxUID);
 
         if (round == diameter) {
           if (maxUID == uid) {
@@ -93,7 +74,6 @@ class Node implements Runnable {
             System.out.printf("%s is not a leader\n", uid);
           }
 
-          // terminate = true;
           this.master.updateMessageCounts(uid, messageCount);
           break;
         }
@@ -119,12 +99,8 @@ class MasterNode implements Runnable {
   // Number of threads to create
   int n;
   volatile boolean isLeaderElected = false;
-  volatile boolean terminate = false;
-  volatile int round = 0;
   int diameter;
   Node[] nodes;
-  // volatile boolean roundInProgress = false;
-  volatile boolean electionInProgress = true;
   int[] uIds;
   HashMap<Integer, List<Integer>> adj;
   HashMap<Integer, Integer> messageCounts;
@@ -157,9 +133,7 @@ class MasterNode implements Runnable {
     for (int neighbor: adj.get(uId)) {
       // Generate random numbers
       int randNum = rand.nextInt(MAX_TIME_UNITS) + MIN_TIME_UNITS;
-      // System.out.println("Random number: " + randNum);
       LocalDateTime delay = LocalDateTime.now().plusNanos(randNum * FACTOR);
-      // System.out.println();
       DelayedItem item = new DelayedItem(message, round, "Sender-" + uId + "-Round-" + round, delay);
       // System.out.println(neighbor + " " + item);
       queueMap.get(neighbor).offer(item);
@@ -178,15 +152,8 @@ class MasterNode implements Runnable {
     messageCounts.put(uid, count);
   }
 
-
-
-
   @Override
   public void run() {
-    // System.out.println("Running " + process.getName() + " thread");
-
-    // TODO: find diameter
-
     // Create all nodes
     nodes = new Node[n];
     for (int i = 0; i < n; i++) {
@@ -204,7 +171,7 @@ class MasterNode implements Runnable {
         if (!isLeaderElected || messageCounts.size() < n) continue;
         System.out.println("Leader elected: " + isLeaderElected);
 
-        System.out.println("Diameter of the graph: " + diameter);
+
         int totalMessageCount = 0;
         int totalEdges = 0;
         for (int key: messageCounts.keySet()) {
@@ -214,9 +181,9 @@ class MasterNode implements Runnable {
           totalMessageCount += count;
           System.out.printf("UID: %s, Message Count: %s, Neighbors: %s, Diam * Neighbors: %s \n", key, count, adj.get(key).size(), (diameter * neighborCount));
         }
-
-        System.out.println("Total messages sent: " + totalMessageCount);
+        System.out.println("\nDiameter of the graph: " + diameter);
         System.out.println("Total edges: " + totalEdges);
+        System.out.println("Total messages sent: " + totalMessageCount);
         break;
       }
     } catch (Exception ex) {

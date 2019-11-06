@@ -13,8 +13,11 @@
 # IDE
 .idea/
 
-VS CODE
+#VS CODE
 .vscode
+
+# eclipse
+.metadata
 
 venv
 __pycache__

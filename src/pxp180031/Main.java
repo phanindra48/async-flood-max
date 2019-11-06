@@ -48,22 +48,21 @@ class Node implements Runnable {
           this.master.sendMessage(uid, round, maxUID);
           this.messageCount += this.neighbors.size();
         }
-
+        //Add available messages in the queue to items
         while (items.size() < neighbors.size()) {
-          // System.out.println("Waiting for neighbors...");
           queue.drainTo(items);
         }
 
-        // add items back if they are not of same round
+        // Add items back to the queue if they are not of same round
         queue.addAll(items.stream().filter(i -> i.getRound() != round).collect(Collectors.toList()));
 
         round++;
 
-        // Get max of all incoming messages
+        // Get max ID of all incoming messages
         maxUID = Math.max(maxUID, items.stream().max(Comparator.comparing(DelayedItem::getId)).get().getId());
 
         items = new ArrayList<>();
-
+        // Terminate after diameter rounds and print if the node is a leader or not.
         if (round == diameter) {
           if (maxUID == uid) {
             status = "LEADER";
@@ -73,7 +72,7 @@ class Node implements Runnable {
             status = "NON_LEADER";
             System.out.printf("%s is not a leader\n", uid);
           }
-
+          //Send the message count of each node to the master
           this.master.updateMessageCounts(uid, messageCount);
           break;
         }
@@ -120,22 +119,22 @@ class MasterNode implements Runnable {
     this.messageCounts = new HashMap<>();
     queueMap = new HashMap<>();
     rand = new Random();
-
+    
     for (int i = 0; i < n; i++) {
       queueMap.put(uIds[i], new DelayQueue<>());
     }
-
+    // Find Diameter of the graph and pass it to the child nodes
     this.diameter = GraphUtility.findMaxDiameter(graph, n);
   }
 
   public boolean sendMessage (int uId, int round, int message) {
-    // send to neighbors
+    // Send messages to neighbors
     for (int neighbor: adj.get(uId)) {
       // Generate random numbers
       int randNum = rand.nextInt(MAX_TIME_UNITS) + MIN_TIME_UNITS;
       LocalDateTime delay = LocalDateTime.now().plusNanos(randNum * FACTOR);
       DelayedItem item = new DelayedItem(message, round, "Sender-" + uId + "-Round-" + round, delay);
-      // System.out.println(neighbor + " " + item);
+      // Add item to the neighbor's queue
       queueMap.get(neighbor).offer(item);
     }
     return true;
@@ -147,7 +146,7 @@ class MasterNode implements Runnable {
   public void leaderElected() {
     this.isLeaderElected = true;
   }
-
+  // Add message counts of each node to a hashmap
   public void updateMessageCounts(int uid, int count) {
     messageCounts.put(uid, count);
   }
@@ -169,11 +168,13 @@ class MasterNode implements Runnable {
       while (true) {
         // Hold master if round is in progress
         if (!isLeaderElected || messageCounts.size() < n) continue;
+        //Print the leader if elected
         System.out.println("Leader elected: " + isLeaderElected);
 
 
         int totalMessageCount = 0;
         int totalEdges = 0;
+        //Loop through the hashmap to compute neighbour count and message count of each node and total message count
         for (int key: messageCounts.keySet()) {
           int count = messageCounts.get(key);
           totalEdges += adj.get(key).size();
@@ -202,6 +203,7 @@ class MasterNode implements Runnable {
 
 public class Main {
   public static void main(String[] args) {
+    // Read the input file
     File file = new File("connectivity3.txt");
     Scanner in;
     try {
@@ -214,7 +216,7 @@ public class Main {
     int n = 0;
     if(in.hasNext())
       n = in.nextInt();
-
+    //Copy the ids in the input file into an array
     int[] uIds = new int[n];
     for( int i = 0; i < n; i++) {
       uIds[i] = in.nextInt();
@@ -225,9 +227,9 @@ public class Main {
     System.out.println();
 
     int counter = 0;
+    //Adjacency Lists of all nodes
     HashMap<Integer, List<Integer>> neighbors = new HashMap();
 
-    // TODO: make use of adjacency list instead
     boolean[][] graph = new boolean[n][n];
     while (counter < n) {
       boolean[] edges = new boolean[n];
@@ -241,7 +243,7 @@ public class Main {
       counter++;
     }
     System.out.println("adj: " + neighbors);
-
+    //Create Master Node
     MasterNode master = new MasterNode("master", n, uIds, neighbors, graph);
     master.start();
   }

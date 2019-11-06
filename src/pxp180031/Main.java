@@ -31,7 +31,8 @@ class Node implements Runnable {
   public Node(int id, int diameter, MasterNode master, List<Integer> neighbors, DelayQueue<DelayedItem> queue) {
     this.name = id + "";
     this.uid = id;
-    this.maxUID = id;
+    this.maxUID = id;\
+    
     this.round = 0;
 
     this.master = master;

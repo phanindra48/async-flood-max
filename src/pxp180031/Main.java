@@ -19,8 +19,6 @@ class Node implements Runnable {
   int uid;
   volatile int round;
   List<Integer> neighbors;
-  volatile boolean hold = false;
-  volatile boolean terminate = false;
   volatile int maxUID;
   DelayQueue<DelayedItem> queue;
   String status;
@@ -44,7 +42,6 @@ class Node implements Runnable {
   @Override
   public void run() {
     List<DelayedItem> items = new ArrayList<>();
-    boolean initiateRound = true;
     try {
       while (true) {
         if (round < diameter) {
@@ -101,11 +98,8 @@ class MasterNode implements Runnable {
   // Number of threads to create
   int n;
   volatile boolean isLeaderElected = false;
-  volatile boolean terminate = false;
-  volatile int round = 0;
   int diameter;
   Node[] nodes;
-  volatile boolean electionInProgress = true;
   int[] uIds;
   HashMap<Integer, List<Integer>> adj;
   HashMap<Integer, Integer> messageCounts;
@@ -129,7 +123,7 @@ class MasterNode implements Runnable {
     for (int i = 0; i < n; i++) {
       queueMap.put(uIds[i], new DelayQueue<>());
     }
-    //Find Diameter of the graph and pass it to the child nodes
+    // Find Diameter of the graph and pass it to the child nodes
     this.diameter = GraphUtility.findMaxDiameter(graph, n);
   }
 
@@ -140,7 +134,7 @@ class MasterNode implements Runnable {
       int randNum = rand.nextInt(MAX_TIME_UNITS) + MIN_TIME_UNITS;
       LocalDateTime delay = LocalDateTime.now().plusNanos(randNum * FACTOR);
       DelayedItem item = new DelayedItem(message, round, "Sender-" + uId + "-Round-" + round, delay);
-      //Add item to the neighbor's queue
+      // Add item to the neighbor's queue
       queueMap.get(neighbor).offer(item);
     }
     return true;
@@ -157,12 +151,8 @@ class MasterNode implements Runnable {
     messageCounts.put(uid, count);
   }
 
-
-
-
   @Override
   public void run() {
-
     // Create all nodes
     nodes = new Node[n];
     for (int i = 0; i < n; i++) {
@@ -181,7 +171,7 @@ class MasterNode implements Runnable {
         //Print the leader if elected
         System.out.println("Leader elected: " + isLeaderElected);
 
-        System.out.println("Diameter of the graph: " + diameter);
+
         int totalMessageCount = 0;
         int totalEdges = 0;
         //Loop through the hashmap to compute neighbour count and message count of each node and total message count
@@ -192,9 +182,9 @@ class MasterNode implements Runnable {
           totalMessageCount += count;
           System.out.printf("UID: %s, Message Count: %s, Neighbors: %s, Diam * Neighbors: %s \n", key, count, adj.get(key).size(), (diameter * neighborCount));
         }
-
-        System.out.println("Total messages sent: " + totalMessageCount);
+        System.out.println("\nDiameter of the graph: " + diameter);
         System.out.println("Total edges: " + totalEdges);
+        System.out.println("Total messages sent: " + totalMessageCount);
         break;
       }
     } catch (Exception ex) {

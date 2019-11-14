@@ -10,32 +10,40 @@ import java.io.FileNotFoundException;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.DelayQueue;
-import java.util.stream.Collectors;
 
 class Node implements Runnable {
   Thread process;
   String name;
-  int diameter;
   int uid;
-  volatile int round;
   List<Integer> neighbors;
   volatile int maxUID;
   DelayQueue<DelayedItem> queue;
   String status;
   int messageCount;
 
+  int rejectCount;
+  int completeCount;
+  boolean init;
+  int neighborCount;
+  int parentId;
+
   MasterNode master;
 
-  public Node(int id, int diameter, MasterNode master, List<Integer> neighbors, DelayQueue<DelayedItem> queue) {
+  public Node(int id, MasterNode master, List<Integer> neighbors, DelayQueue<DelayedItem> queue) {
     this.name = id + "";
     this.uid = id;
     this.maxUID = id;
-    this.round = 0;
+
+    this.rejectCount = 0;
+    this.completeCount = 0;
+    this.init = true;
+
 
     this.master = master;
     this.neighbors = neighbors;
+    this.neighborCount = neighbors.size();
     this.queue = queue;
-    this.diameter = diameter;
+    this.parentId = uid;
     this.status = "UNKNOWN";
   }
 
@@ -43,36 +51,64 @@ class Node implements Runnable {
   public void run() {
     List<DelayedItem> items = new ArrayList<>();
     try {
+      this.master.sendMessage(uid, uid, Status.EXPLORE, null, null);
+      this.messageCount += neighborCount;
+
       while (true) {
-        if (round < diameter) {
-          this.master.sendMessage(uid, round, maxUID);
-          this.messageCount += this.neighbors.size();
-        }
-        //Add available messages in the queue to items
-        while (items.size() < neighbors.size()) {
-          queue.drainTo(items);
-        }
+        // Take available message from the queue 
+        DelayedItem item = queue.take();
+        int senderUID = item.getSenderUID();
+        int incomingMaxId = item.getMaxId();
+        Status incomingStatus = item.getStatus();
 
-        // Add items back to the queue if they are not of same round
-        queue.addAll(items.stream().filter(i -> i.getRound() != round).collect(Collectors.toList()));
+        if (incomingStatus.equals(Status.EXPLORE)) {
+          // if new max node is found, send reject to previous parent
+          if (incomingMaxId > maxUID) {
+            if (maxUID != uid) {
+              this.messageCount++;
+              this.master.sendMessage(uid, incomingMaxId, Status.REJECT, null, parentId);
+            }
+            this.parentId = senderUID;
+            this.maxUID = incomingMaxId;
 
-        round++;
+            // send explore to neighbors except to parent node
+            this.messageCount += this.neighborCount - 1;
+            this.master.sendMessage(uid, maxUID, Status.EXPLORE, parentId, null);
 
-        // Get max ID of all incoming messages
-        maxUID = Math.max(maxUID, items.stream().max(Comparator.comparing(DelayedItem::getId)).get().getId());
-
-        items = new ArrayList<>();
-        // Terminate after diameter rounds and print if the node is a leader or not.
-        if (round == diameter) {
-          if (maxUID == uid) {
-            status = "LEADER";
-            System.out.printf("%s is elected as leader\n", uid);
-            this.master.leaderElected();
           } else {
-            status = "NON_LEADER";
-            System.out.printf("%s is not a leader\n", uid);
+            this.messageCount++;
+            this.master.sendMessage(uid, maxUID, Status.REJECT, null, senderUID);
           }
-          //Send the message count of each node to the master
+        } else if (incomingStatus.equals(Status.COMPLETE) || incomingStatus.equals(Status.REJECT)) {
+          if (incomingStatus.equals(Status.COMPLETE)) completeCount++;
+          else rejectCount++;
+
+          if (
+            (rejectCount == neighborCount ||
+              (rejectCount + completeCount == neighborCount)) &&
+              parentId != uid
+          ) {
+            messageCount++;
+
+            // update parent that its complete
+            this.master.sendMessage(uid, maxUID, Status.COMPLETE, null, parentId);
+          } else if (completeCount == neighborCount) {
+            this.messageCount += neighborCount;
+
+            // let master know that leader got elected
+            this.master.leaderElected();
+
+            // update all neighbors about leader election
+            System.out.printf("%s is leader\n", uid);
+            this.master.updateMessageCounts(uid, messageCount);
+            this.master.sendMessage(uid, maxUID, Status.LEADER, null, null);
+          }
+        } else if (incomingStatus.equals(Status.LEADER)) {
+          System.out.printf("%s is not a leader\n", uid);
+          // pass leader broadcast message along all tree edges
+          this.master.sendMessage(uid, maxUID, Status.LEADER, senderUID, null);
+          this.messageCount += neighborCount - 1;
+          // System.out.printf("UID %s Message count %s\n", uid, messageCount);
           this.master.updateMessageCounts(uid, messageCount);
           break;
         }
@@ -98,7 +134,6 @@ class MasterNode implements Runnable {
   // Number of threads to create
   int n;
   volatile boolean isLeaderElected = false;
-  int diameter;
   Node[] nodes;
   int[] uIds;
   HashMap<Integer, List<Integer>> adj;
@@ -111,7 +146,7 @@ class MasterNode implements Runnable {
   // Create FIFO queues
   HashMap<Integer, DelayQueue<DelayedItem>> queueMap;
 
-  public MasterNode(String name, int n, int[] uIds, HashMap<Integer, List<Integer>> adj, boolean[][] graph) {
+  public MasterNode(String name, int n, int[] uIds, HashMap<Integer, List<Integer>> adj) {
     this.name = name;
     this.uIds = uIds;
     this.n = n;
@@ -123,17 +158,24 @@ class MasterNode implements Runnable {
     for (int i = 0; i < n; i++) {
       queueMap.put(uIds[i], new DelayQueue<>());
     }
-    // Find Diameter of the graph and pass it to the child nodes
-    this.diameter = GraphUtility.findMaxDiameter(graph, n);
   }
 
-  public boolean sendMessage (int uId, int round, int message) {
+  public boolean sendMessage (int senderId, int maxId, Status status, Integer ignoreUID, Integer parentId) {
+    if (parentId != null) {
+      int randNum = rand.nextInt(MAX_TIME_UNITS) + MIN_TIME_UNITS;
+      LocalDateTime delay = LocalDateTime.now().plusNanos(randNum * FACTOR);
+      DelayedItem item = new DelayedItem(senderId, maxId, status, delay);
+      // Add item to the neighbor's queue
+      queueMap.get(parentId).offer(item);
+      return true;
+    }
     // Send messages to neighbors
-    for (int neighbor: adj.get(uId)) {
+    for (int neighbor: adj.get(senderId)) {
+      if (ignoreUID != null && ignoreUID == neighbor) continue;
       // Generate random numbers
       int randNum = rand.nextInt(MAX_TIME_UNITS) + MIN_TIME_UNITS;
       LocalDateTime delay = LocalDateTime.now().plusNanos(randNum * FACTOR);
-      DelayedItem item = new DelayedItem(message, round, "Sender-" + uId + "-Round-" + round, delay);
+      DelayedItem item = new DelayedItem(senderId, maxId, status, delay);
       // Add item to the neighbor's queue
       queueMap.get(neighbor).offer(item);
     }
@@ -156,7 +198,7 @@ class MasterNode implements Runnable {
     // Create all nodes
     nodes = new Node[n];
     for (int i = 0; i < n; i++) {
-      nodes[i] = new Node(uIds[i], diameter, this, adj.get(uIds[i]), queueMap.get(uIds[i]));
+      nodes[i] = new Node(uIds[i], this, adj.get(uIds[i]), queueMap.get(uIds[i]));
     }
 
     // Start all nodes
@@ -168,21 +210,18 @@ class MasterNode implements Runnable {
       while (true) {
         // Hold master if round is in progress
         if (!isLeaderElected || messageCounts.size() < n) continue;
-        //Print the leader if elected
-        System.out.println("Leader elected: " + isLeaderElected);
-
 
         int totalMessageCount = 0;
         int totalEdges = 0;
-        //Loop through the hashmap to compute neighbour count and message count of each node and total message count
+
+        // Print statistics
         for (int key: messageCounts.keySet()) {
           int count = messageCounts.get(key);
           totalEdges += adj.get(key).size();
-          int neighborCount = adj.get(key).size();
           totalMessageCount += count;
-          System.out.printf("UID: %s, Message Count: %s, Neighbors: %s, Diam * Neighbors: %s \n", key, count, adj.get(key).size(), (diameter * neighborCount));
+          System.out.printf("UID: %s, Message Count: %s, Neighbors: %s \n", key, count, adj.get(key).size());
         }
-        System.out.println("\nDiameter of the graph: " + diameter);
+
         System.out.println("Total edges: " + totalEdges);
         System.out.println("Total messages sent: " + totalMessageCount);
         break;
@@ -230,7 +269,6 @@ public class Main {
     //Adjacency Lists of all nodes
     HashMap<Integer, List<Integer>> neighbors = new HashMap();
 
-    boolean[][] graph = new boolean[n][n];
     while (counter < n) {
       boolean[] edges = new boolean[n];
       for( int i = 0; i < n; i++) {
@@ -239,12 +277,11 @@ public class Main {
           edges[i] = true;
         }
       }
-      graph[counter] = edges;
       counter++;
     }
     System.out.println("adj: " + neighbors);
     //Create Master Node
-    MasterNode master = new MasterNode("master", n, uIds, neighbors, graph);
+    MasterNode master = new MasterNode("master", n, uIds, neighbors);
     master.start();
   }
 }

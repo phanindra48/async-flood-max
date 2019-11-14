@@ -6,25 +6,30 @@ import java.util.concurrent.Delayed;
 import java.util.concurrent.TimeUnit;
 
 public class DelayedItem implements Delayed {
-  private int id;
+  private int maxId;
+  private int senderUID;
   private LocalDateTime activationDateTime;
-  private String name;
+  private Status status;
   private int round;
 
-  public DelayedItem(int id, int round, String name, LocalDateTime activationDateTime) {
+  public DelayedItem(int senderUID, int maxId, Status status, LocalDateTime activationDateTime) {
     super();
-    this.id = id;
-    this.name = name;
-    this.round = round;
+    this.maxId = maxId;
+    this.senderUID = senderUID;
+    this.status = status;
     this.activationDateTime = activationDateTime;
   }
 
-  public int getId() {
-    return id;
+  public int getSenderUID() {
+    return senderUID;
   }
 
-  public int getRound() {
-    return round;
+  public int getMaxId() {
+    return maxId;
+  }
+
+  public Status getStatus() {
+    return status;
   }
 
   public LocalDateTime getActivationDateTime() {
@@ -51,6 +56,6 @@ public class DelayedItem implements Delayed {
 
   @Override
   public String toString() {
-    return "DelayedEvent [id=" + id + ", name= " + name + ", activationDateTime=" + activationDateTime + " ," + getDelay(TimeUnit.MILLISECONDS) + "]";
+    return "DelayedEvent [id=" + maxId + ", senderUID= " + senderUID + ", activationDateTime=" + activationDateTime + " ," + getDelay(TimeUnit.MILLISECONDS) + "]";
   }
 }
